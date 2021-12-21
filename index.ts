@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { basename } from 'path/posix';
 
 class Transaction {
     constructor(
@@ -36,22 +37,30 @@ class Chain {
     chain: Block[];
 
     constructor() {
-        this.chain = [new Block('', new Transaction(717, 'Thin', 'Air'))];
+
+        const keyPair = crypto.generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: {type: 'spki', format: 'pem'},
+            privateKeyEncoding: {type: 'pkcs8', format: 'pem'},
+        });
+        this.chain = [new Block('', new Transaction(10000, 'Thin', 'Air'))]; // Genesis Block
     }
 
     addBlock(transaction: Transaction, senderPublicKey: string, signature: Buffer) {
-        //const newBlock = new Block(this.lastBlock.hash, transaction);
-        //this.chain.push(newBlock);
+        
+        if (transaction.amount > this.calcBalance(senderPublicKey)) {
+            console.log('Rejected by blockchain. Insufficient funds');
+        } else {
+            const verifier = crypto.createVerify('SHA256');
+            verifier.update(transaction.toString());
 
-        const verifier = crypto.createVerify('SHA256');
-        verifier.update(transaction.toString());
+            const isValid = verifier.verify(senderPublicKey, signature);
 
-        const isValid = verifier.verify(senderPublicKey, signature);
-
-        if (isValid) {
-            const newBlock = new Block(this.lastBlock.hash, transaction);
-            this.mine(newBlock.nonce);
-            this.chain.push(newBlock);
+            if (isValid) {
+                const newBlock = new Block(this.lastBlock.hash, transaction);
+                this.mine(newBlock.nonce);
+                this.chain.push(newBlock);
+            }
         }
     }
 
@@ -73,16 +82,34 @@ class Chain {
                 console.log(`Solved ${solution}`);
                 return solution;
             }
-
             solution += 1;
         }
-        
+    }
+
+    calcBalance(publicKey: string) {
+        let balance = 0;
+
+        for (let i = 0; i < this.chain.length; i++) {
+            if (this.chain[i].transaction.payee == publicKey) {
+                balance += Chain.instance.chain[i].transaction.amount;
+            } else if (Chain.instance.chain[i].transaction.payer == publicKey) {
+                balance -= Chain.instance.chain[i].transaction.amount;
+            }
+        }
+        return balance;
+    }
+    
+    issueICO(amount: number, publicKey: string) {
+        let transaction = new Transaction(amount, 'Genesis', publicKey);
+        const newBlock = new Block(this.lastBlock.hash, transaction);
+        this.mine(newBlock.nonce);
+        this.chain.push(newBlock);
     }
 }
 
 class Wallet {
     public publicKey: string;
-    public privateKey: string;
+    private privateKey: string;
     private balance: number;
 
     constructor() {
@@ -97,7 +124,10 @@ class Wallet {
         this.balance = 0;
 
         }
+
         sendMoney(amount: number, payeePublicKey: string) {
+            this.updateBalance();
+
             if (amount <= this.balance) {
                 const transaction = new Transaction(amount, this.publicKey, payeePublicKey);
                 const sign = crypto.createSign('SHA256');
@@ -109,7 +139,47 @@ class Wallet {
             } else {
                 console.log(`Insufficient funds to transfer ${amount}. Available balance: ${this.balance}`);
             }
+        }
 
+        updateBalance() {
+            this.balance = Chain.instance.calcBalance(this.publicKey);
+        }
+
+        buyCoin(USDamount: number, buyerPublicKey: string) {
+            // Allowing fractional coin buying.
+            if (USDamount >= 100) { // Minimum buying power is 100 USD
+                let coinAmount = USDamount / Exchange.instance.coinPrice;
+                Exchange.instance.ICO.sendMoney(coinAmount, buyerPublicKey);
+            }
+        }
+
+        get currBalance() {
+            this.updateBalance();
+            return this.balance;
+        }
+}
+
+class Exchange {
+
+    public static instance = new Exchange(); // Singleton instance
+    private exchangeRate: number;
+    public ICO: Wallet;
+    constructor() {
+        this.exchangeRate = Math.floor((Math.random() * 9000) + 1000); // Random USD value of one coin between 1000-10000
+        this.ICO = new Wallet();
+        Chain.instance.issueICO(1000000, this.ICO.publicKey);
+    }
+
+    buyCoin(USDamount: number, buyerPublicKey: string) {
+        // Will not allow fractional coin buying.
+        let coinAmount = USDamount / this.exchangeRate;
+        if (coinAmount >= 1) {
+            this.ICO.sendMoney(coinAmount, buyerPublicKey);
+        }
+    }
+
+    get coinPrice() {
+        return this.exchangeRate;
     }
 }
 
@@ -117,17 +187,23 @@ class Wallet {
 
 const sean = new Wallet();
 const dev = new Wallet();
+const phil = new Wallet();
 
-sean.sendMoney(75, dev.publicKey);
-dev.sendMoney(150, sean.publicKey);
+console.log(`COIN PRICE: $${Exchange.instance.coinPrice}`)
+
+sean.buyCoin(100000, sean.publicKey);
+console.log(`SEAN COIN BALANCE: ${sean.currBalance}`)
+
+sean.sendMoney(sean.currBalance - 5, dev.publicKey);
+
+dev.sendMoney(3, phil.publicKey);
+
+console.log(`SEAN COIN BALANCE: ${sean.currBalance}`)
+console.log(`DEV COIN BALANCE: ${dev.currBalance}`)
+console.log(`PHIL COIN BALANCE: ${phil.currBalance}`)
 
 console.log(Chain.instance);
 
-
-
 /* TO-DO
-- Add fund verification before sending.
-- Add balance for each wallet +- coins
-- 
-
+- Implement price fluctuations of USD/coin exchange rate in Exchange class
 */
