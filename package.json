@@ -1,0 +1,17 @@
+{
+  "name": "blockchain1",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsc -w",
+    "start": "tsc && node ."
+  },
+  "keywords": [],
+  "author": "Sean Devine",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^17.0.2",
+    "typescript": "^4.5.4"
+  }
+}
